@@ -1,0 +1,12 @@
+{
+  "name": "scraper-undangan-cloudflare-pages",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Scraper HTML untuk Cloudflare Pages tanpa dependensi runtime",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "npx wrangler@4 pages dev public",
+    "deploy": "npx wrangler@4 pages deploy public"
+  }
+}

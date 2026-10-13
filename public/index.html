@@ -3,51 +3,82 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scraper Undangan</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>Web Scraper Undangan</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#0f172a;color:#e2e8f0;font:16px/1.6 system-ui,sans-serif;min-height:100vh;padding:28px 16px}main{max-width:700px;margin:40px auto;background:#1e293b;padding:28px;border-radius:16px;box-shadow:0 14px 40px #0003}h1{margin:0 0 8px;font-size:26px}p{color:#cbd5e1}label{display:block;margin:22px 0 8px;font-weight:600}.row{display:flex;gap:10px}input{min-width:0;flex:1;background:#0f172a;color:#f8fafc;border:1px solid #64748b;border-radius:8px;padding:12px;font:inherit}input:focus{outline:2px solid #60a5fa;outline-offset:2px}button{background:#2563eb;border:0;color:white;border-radius:8px;padding:12px 20px;font:600 16px system-ui;cursor:pointer}button:hover{background:#1d4ed8}button:disabled{opacity:.6;cursor:wait}pre{background:#020617;color:#86efac;border-radius:10px;padding:16px;max-height:480px;overflow:auto;font:13px/1.6 monospace;white-space:pre-wrap;overflow-wrap:anywhere}#status{min-height:24px;margin:14px 0 0;color:#cbd5e1}#status[data-error="true"]{color:#fca5a5}.note{font-size:13px;color:#94a3b8;margin-top:24px}[hidden]{display:none!important}@media(max-width:520px){main{margin:16px auto;padding:20px}.row{flex-direction:column}h1{font-size:22px}}
+  </style>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen p-6 flex flex-col items-center">
-  <div class="max-w-xl w-full bg-slate-800 p-6 rounded-xl shadow-lg mt-8">
-    <h1 class="text-xl font-bold mb-4 text-center">Web Scraper Undangan</h1>
-    <div class="flex gap-2">
-      <input id="urlInput" type="url" placeholder="https://bertemumoment.com/preview/chinese-java" 
-             class="flex-1 px-4 py-2 rounded bg-slate-700 text-white border border-slate-600 focus:outline-none focus:border-blue-500">
-      <button id="scrapeBtn" onclick="runScraper()" 
-              class="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded font-medium transition">
-        Scrape
-      </button>
-    </div>
-    
-    <div id="loading" class="hidden mt-4 text-center text-slate-400">Sedang mengambil data...</div>
-    <pre id="result" class="mt-4 p-4 bg-slate-950 rounded text-xs text-green-400 overflow-x-auto max-h-96 hidden"></pre>
-  </div>
-
+<body>
+  <main>
+    <h1>Web Scraper Undangan</h1>
+    <p>Ambil judul, audio, gambar, serta tautan Google Maps dan Calendar dari HTML halaman publik.</p>
+    <form id="scrapeForm">
+      <label for="urlInput">URL halaman</label>
+      <div class="row">
+        <input id="urlInput" name="url" type="url" required maxlength="2048" placeholder="https://contoh.com/undangan" autocomplete="url">
+        <button id="scrapeBtn" type="submit">Scrape</button>
+      </div>
+    </form>
+    <p id="status" role="status" aria-live="polite"></p>
+    <pre id="result" aria-label="Hasil JSON" hidden></pre>
+    <p class="note">Hanya HTML awal yang dibaca. Konten yang dimuat lewat JavaScript, halaman login, dan situs yang memblokir bot mungkin tidak dapat diambil.</p>
+    <noscript>Aktifkan JavaScript untuk menggunakan aplikasi ini.</noscript>
+  </main>
   <script>
-    async function runScraper() {
-      const url = document.getElementById('urlInput').value.trim();
-      const resultBox = document.getElementById('result');
-      const loading = document.getElementById('loading');
+    const form = document.getElementById('scrapeForm');
+    const input = document.getElementById('urlInput');
+    const button = document.getElementById('scrapeBtn');
+    const statusBox = document.getElementById('status');
+    const resultBox = document.getElementById('result');
+    let running = false;
 
-      if (!url) return alert('Silakan masukkan link URL');
-
-      loading.classList.remove('hidden');
-      resultBox.classList.add('hidden');
-
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (running) return;
+      resultBox.hidden = true;
+      statusBox.dataset.error = 'false';
+      let url;
       try {
-        const res = await fetch('/api/scrape', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url })
-        });
-        const data = await res.json();
-        resultBox.textContent = JSON.stringify(data, null, 2);
-        resultBox.classList.remove('hidden');
-      } catch (e) {
-        alert('Terjadi kesalahan: ' + e.message);
-      } finally {
-        loading.classList.add('hidden');
+        url = new URL(input.value.trim());
+        if (!['https:', 'http:'].includes(url.protocol)) throw new Error('URL harus menggunakan http atau https.');
+        if (location.protocol === 'file:') throw new Error('Jalankan aplikasi melalui Cloudflare Pages atau Wrangler, bukan dengan membuka file HTML langsung.');
+      } catch (error) {
+        statusBox.textContent = error.message || 'URL tidak valid.';
+        statusBox.dataset.error = 'true';
+        return;
       }
-    }
+      running = true;
+      button.disabled = true;
+      button.textContent = 'Memproses...';
+      statusBox.textContent = 'Sedang mengambil data...';
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 25000);
+      try {
+        const response = await fetch('/api/scrape', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ url: url.href }),
+          signal: controller.signal
+        });
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          throw new Error('API tidak mengembalikan JSON. Pastikan _worker.js ikut dideploy ke Cloudflare Pages.');
+        }
+        const data = await response.json();
+        if (!response.ok || data.success !== true) throw new Error(data.error || 'Pengambilan data gagal (HTTP ' + response.status + ').');
+        resultBox.textContent = JSON.stringify(data, null, 2);
+        resultBox.hidden = false;
+        statusBox.textContent = 'Selesai. Ditemukan ' + data.images.length + ' gambar.';
+      } catch (error) {
+        statusBox.dataset.error = 'true';
+        statusBox.textContent = error.name === 'AbortError' ? 'Permintaan terlalu lama. Coba lagi atau gunakan URL lain.' : error.message;
+      } finally {
+        clearTimeout(timeout);
+        running = false;
+        button.disabled = false;
+        button.textContent = 'Scrape';
+      }
+    });
   </script>
 </body>
 </html>
