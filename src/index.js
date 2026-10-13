@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio';
 const MAX_HTML_BYTES = 5 * 1024 * 1024;
 const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
 const AUDIO_EXT = /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|aiff|aif)(?:$|[?#])/i;
+const VIDEO_EXT = /\.(mp4|webm|gif|mov|m4v|ogv)(?:$|[?#])/i;
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico|tiff?)(?:$|[?#])/i;
 
 class HttpError extends Error {
@@ -79,12 +80,14 @@ export function extractPage(html, finalUrl) {
   const $ = cheerio.load(html);
   let base = finalUrl;
   try { base = publicUrl(new URL($('base[href]').first().attr('href') || finalUrl, finalUrl).href).href; } catch { /* gunakan URL akhir */ }
-  const images = new Set(), audios = new Set();
+  const images = new Set(), audios = new Set(), videos = new Set();
   function add(set, raw) {
     if (!raw || typeof raw !== 'string') return;
     try {
       const cleaned = raw.trim().replace(/&amp;/g, '&').replace(/\\\//g, '/');
-      set.add(publicUrl(new URL(cleaned, base).href).href);
+      const resolved = publicUrl(new URL(cleaned, base).href).href;
+      // GIF dikelompokkan bersama video, meskipun berasal dari tag img/CSS.
+      (set === images && VIDEO_EXT.test(resolved) ? videos : set).add(resolved);
     } catch { /* abaikan data:, blob:, javascript:, dan alamat privat */ }
   }
   function srcset(set, value) {
@@ -111,6 +114,23 @@ export function extractPage(html, finalUrl) {
   const normalizedHtml = html.replace(/\\\//g, '/');
   for (const match of normalizedHtml.matchAll(/(?:https?:\/\/|\/\/)[^\s"'<>\\]+\.(?:mp3|wav|ogg|oga|m4a|aac|flac|opus)(?:\?[^\s"'<>\\]*)?/gi)) add(audios, match[0]);
 
+  $('video, video source').each((_, el) => {
+    for (const attr of ['src', 'data-src', 'data-lazy-src']) add(videos, $(el).attr(attr));
+  });
+  $('video[poster]').each((_, el) => add(images, $(el).attr('poster')));
+  $('meta[property="og:video"], meta[property="og:video:url"], meta[property="og:video:secure_url"]').each((_, el) => {
+    const value = $(el).attr('content');
+    // Jangan perlakukan halaman embed YouTube/Vimeo sebagai file video.
+    if (VIDEO_EXT.test(value || '')) add(videos, value);
+  });
+  $('a[href], [data-video], [data-video-src], [data-src]').each((_, el) => {
+    for (const attr of ['href', 'data-video', 'data-video-src', 'data-src']) {
+      const value = $(el).attr(attr);
+      if (VIDEO_EXT.test(value || '')) add(videos, value);
+    }
+  });
+  for (const match of normalizedHtml.matchAll(/(?:https?:\/\/|\/\/)[^\s"'<>\\]+\.(?:mp4|webm|gif|mov|m4v|ogv)(?:\?[^\s"'<>\\]*)?/gi)) add(videos, match[0]);
+
   const textDoc = cheerio.load(html);
   textDoc('script, style, noscript, svg, iframe, template, head').remove();
   textDoc('br').replaceWith('\n');
@@ -128,28 +148,30 @@ export function extractPage(html, finalUrl) {
     audio: [...audios][0] || null, // tetap kompatibel dengan respons versi sebelumnya
     audios: [...audios],
     images: [...images],
+    videos: [...videos],
     notice: 'Teks dan media diambil dari HTML awal. Konten yang hanya muncul setelah JavaScript dijalankan, login, atau dari CSS eksternal mungkin tidak terambil. Preview dan download bergantung pada izin server sumber. Batas download: 100 MB per file.'
   };
 }
 
 function downloadFilename(source, contentType, kind) {
-  const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg', 'image/avif': 'avif', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/aac': 'aac', 'audio/flac': 'flac' };
+  const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg', 'image/avif': 'avif', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/aac': 'aac', 'audio/flac': 'flac', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/ogg': 'ogv', 'video/quicktime': 'mov' };
   let name = new URL(source).pathname.split('/').pop() || kind;
   try { name = decodeURIComponent(name); } catch { /* pertahankan nama */ }
   name = name.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/^\.+/, '').slice(0, 160) || kind;
-  if (!/\.[a-z0-9]{2,5}$/i.test(name)) name += '.' + (extensions[contentType] || (kind === 'image' ? 'img' : 'audio'));
+  if (!/\.[a-z0-9]{2,5}$/i.test(name)) name += '.' + (extensions[contentType] || (kind === 'image' ? 'img' : kind === 'video' ? 'video' : 'audio'));
   return name;
 }
 
 async function download(url) {
   const target = publicUrl(url.searchParams.get('url')).href;
   const kind = url.searchParams.get('kind');
-  if (!['image', 'audio'].includes(kind)) throw new HttpError('Jenis download harus image atau audio.');
+  if (!['image', 'audio', 'video'].includes(kind)) throw new HttpError('Jenis download harus image, video, atau audio.');
   const { response, finalUrl } = await publicFetch(target, { referer: url.searchParams.get('referer') || undefined, timeout: 60000 });
   if (!response.ok) { await response.body?.cancel(); throw new HttpError(`Sumber media menolak download (HTTP ${response.status}).`, 502); }
   const type = (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
-  const matches = type.startsWith(kind + '/') || (!type || type === 'application/octet-stream') && (kind === 'image' ? IMAGE_EXT : AUDIO_EXT).test(finalUrl);
-  if (!matches) { await response.body?.cancel(); throw new HttpError('Sumber tidak mengirim file gambar/audio yang sesuai.', 415); }
+  const extension = kind === 'image' ? IMAGE_EXT : kind === 'video' ? VIDEO_EXT : AUDIO_EXT;
+  const matches = type.startsWith(kind + '/') || kind === 'video' && type === 'image/gif' || (!type || type === 'application/octet-stream') && extension.test(finalUrl);
+  if (!matches) { await response.body?.cancel(); throw new HttpError('Sumber tidak mengirim file gambar/video/audio yang sesuai.', 415); }
   if (Number(response.headers.get('Content-Length')) > MAX_DOWNLOAD_BYTES) { await response.body?.cancel(); throw new HttpError('File melebihi batas download 100 MB.', 413); }
   // Streaming: tidak menampung seluruh audio/gambar di memori Worker.
   let size = 0;
