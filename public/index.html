@@ -14,15 +14,17 @@
     @media(max-width:760px){main{padding:32px 20px 48px}h1{font-size:30px}.media-grid,.audio-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.card-head{flex-direction:column}.card{padding:20px}.full-text{padding:16px}}
     @media(max-width:480px){.form-row{flex-direction:column}.media-grid,.audio-grid{grid-template-columns:1fr}.card{padding:16px}.intro{margin-bottom:24px}.card-head .actions{width:100%}.card-head .actions .button{flex:1}.full-text{max-height:480px}}
 
-    .zip-card{border-color:var(--accent)}.zip-options{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}.zip-options .button{white-space:normal;text-align:center}.zip-progress{width:100%;height:12px;accent-color:var(--accent);margin:16px 0 4px}.zip-report{font-size:14px;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0 0;max-height:200px;overflow:auto}.video-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.video-frame{aspect-ratio:16/9;background:var(--canvas);display:flex;align-items:center;justify-content:center;overflow:hidden}.video-frame video,.video-frame img{width:100%;height:100%;object-fit:contain}.video-frame video{background:#191919}.format-tag{font-size:14px;color:var(--accent);margin:0 0 8px}.zip-summary{font-size:14px;color:var(--muted);margin:16px 0 0}
-    @media(max-width:760px){.zip-options{grid-template-columns:repeat(2,minmax(0,1fr))}.zip-options .primary{grid-column:1/-1}}
+    .zip-card{border-color:var(--accent)}.zip-options{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.zip-options .button{white-space:normal;text-align:center}.zip-progress{width:100%;height:12px;accent-color:var(--accent);margin:16px 0 4px}.zip-report{font-size:14px;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0 0;max-height:200px;overflow:auto}.video-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.video-frame{aspect-ratio:16/9;background:var(--canvas);display:flex;align-items:center;justify-content:center;overflow:hidden}.video-frame video,.video-frame img{width:100%;height:100%;object-fit:contain}.video-frame video{background:#191919}.format-tag{font-size:14px;color:var(--accent);margin:0 0 8px}.zip-summary{font-size:14px;color:var(--muted);margin:16px 0 0}
+    @media(max-width:760px){.zip-options{grid-template-columns:repeat(2,minmax(0,1fr))}.zip-options .primary,.zip-options [data-zip="code"]{grid-column:1/-1}}
     @media(max-width:480px){.video-grid{grid-template-columns:1fr}}
+    .code-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.code-source{font-size:14px;color:var(--muted);overflow-wrap:anywhere;margin:8px 0 16px}.code-grid .filename{font-weight:600;color:var(--text);margin:0 0 8px}.code-detail{margin:0 0 16px;font-size:14px;color:var(--muted)}
+    @media(max-width:480px){.code-grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
 <main>
   <header>
-    <p class="eyebrow">TEKS · GAMBAR · VIDEO · AUDIO</p>
+    <p class="eyebrow">TEKS · MEDIA · FILE KODE</p>
     <h1>Web Scraper Undangan</h1>
     <p class="intro">Ambil teks lengkap dan media dari satu halaman. Baca hasilnya, lalu download media satu per satu atau kumpulkan dalam ZIP.</p>
   </header>
@@ -46,7 +48,7 @@
     </header>
     <section class="card zip-card" aria-labelledby="zipHeading">
       <div class="card-head">
-        <div><h2 id="zipHeading">Download ZIP</h2><p>Semua hasil atau satu kategori. GIF masuk dalam Video/GIF.</p></div>
+        <div><h2 id="zipHeading">Download ZIP</h2><p>Semua hasil, termasuk file kode, atau satu kategori. GIF masuk dalam Video/GIF.</p></div>
         <button id="cancelZip" type="button" class="button" hidden>Batalkan</button>
       </div>
       <div class="zip-options">
@@ -55,6 +57,7 @@
         <button type="button" class="button" data-zip="video">ZIP video/GIF</button>
         <button type="button" class="button" data-zip="audio">ZIP audio</button>
         <button type="button" class="button" data-zip="text">ZIP teks</button>
+        <button type="button" class="button" data-zip="code">ZIP kode</button>
       </div>
       <p class="zip-summary">Maks. 100 MB/file, 150 MB total, dan 500 file per ZIP. ZIP dibuat di browser, tanpa konversi media.</p>
       <progress id="zipProgress" class="zip-progress" value="0" max="1" aria-label="Progres pembuatan ZIP" hidden></progress>
@@ -67,6 +70,12 @@
         <div class="actions"><button id="copyText" type="button" class="button">Salin teks</button><button id="downloadText" type="button" class="button">Download .txt</button></div>
       </div>
       <pre id="fullText" class="full-text" tabindex="0" aria-label="Teks hasil scraping"></pre>
+    </section>
+    <section class="card" aria-labelledby="codeHeading">
+      <div class="card-head"><div><h2 id="codeHeading">File kode &amp; struktur web <span id="codeCount"></span></h2><p>HTML, CSS, JS, dan aset pendukung. Hanya daftar file, tanpa preview kode.</p></div></div>
+      <p id="codeNotice" class="code-detail"></p>
+      <p id="codeEmpty" class="empty" hidden>Tidak ada file kode yang ditemukan pada hasil ini.</p>
+      <div id="codeList" class="code-grid"></div>
     </section>
     <section class="card" aria-labelledby="videoHeading">
       <div class="card-head"><div><h2 id="videoHeading">Video / GIF <span id="videoCount"></span></h2><p>Preview MP4, WebM, dan GIF. Download atau buka file aslinya.</p></div></div>
@@ -103,9 +112,10 @@ function safeUrl(raw) {
 function filename(url, fallback) {
   try { return decodeURIComponent(new URL(url).pathname.split('/').pop()) || fallback; } catch { return fallback; }
 }
-function downloadUrl(source, kind, referer) {
+function downloadUrl(source, kind, referer, fileType) {
   const params = new URLSearchParams({ url: source, kind });
   if (safeUrl(referer)) params.set('referer', referer);
+  if (kind === 'code' && fileType) params.set('fileType', fileType);
   return '/api/download?' + params.toString();
 }
 function make(tag, className, text) {
@@ -120,9 +130,9 @@ function saveBlob(blob, name) {
   const a = make('a'); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
-async function fetchMedia(source, kind, referer, { signal, maxBytes = MAX_FILE } = {}) {
+async function fetchMedia(source, kind, referer, { signal, maxBytes = MAX_FILE, fileType } = {}) {
   const combinedSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(180000)]) : AbortSignal.timeout(180000);
-  const response = await fetch(downloadUrl(source, kind, referer), { signal: combinedSignal });
+  const response = await fetch(downloadUrl(source, kind, referer, fileType), { signal: combinedSignal });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     throw new Error(data.error || 'Download gagal (HTTP ' + response.status + ').');
@@ -144,7 +154,7 @@ async function fetchMedia(source, kind, referer, { signal, maxBytes = MAX_FILE }
     }
   } catch (error) { await reader.cancel().catch(() => {}); throw error; }
   finally { reader.releaseLock(); }
-  if (!size) throw new Error('Sumber mengirim file kosong.');
+  if (!size && kind !== 'code') throw new Error('Sumber mengirim file kosong.');
   return { blob: new Blob(chunks, { type: response.headers.get('Content-Type') || 'application/octet-stream' }), name, size };
 }
 async function downloadMedia(button, source, kind, referer, label) {
@@ -171,6 +181,62 @@ function mediaActions(source, kind, referer, label) {
   actions.append(download, open); return actions;
 }
 function mediaUrls(values) { return [...new Set((Array.isArray(values) ? values : []).map(safeUrl).filter(Boolean))]; }
+function normalizeCodeFiles(values) {
+  const allowed = new Set(['html', 'css', 'js', 'json', 'xml', 'text', 'font', 'wasm', 'map', 'data']);
+  const seen = new Set(), files = [];
+  for (const value of Array.isArray(values) ? values : []) {
+    if (!value || typeof value !== 'object' || !allowed.has(value.type)) continue;
+    const local = typeof value.content === 'string', url = safeUrl(value.url), sourceUrl = safeUrl(value.sourceUrl);
+    if (!local && !url) continue;
+    const key = local ? 'local:' + (value.id || value.name) : 'url:' + url;
+    if (seen.has(key)) continue; seen.add(key);
+    files.push({ ...value, name: safeFileName(value.name || 'file.' + value.type), url, sourceUrl, local });
+  }
+  return files;
+}
+async function fetchCodeFile(file, referer, options = {}) {
+  abortCheck(options.signal);
+  if (file.local) {
+    const blob = new Blob([file.content], { type: file.mime || 'text/plain;charset=utf-8' });
+    if (blob.size > Math.min(MAX_FILE, options.maxBytes ?? MAX_FILE)) throw new Error('Ukuran file melebihi batas yang tersedia.');
+    return { blob, size: blob.size, name: file.name };
+  }
+  const downloaded = await fetchMedia(file.url, 'code', referer, { ...options, fileType: file.type });
+  return { ...downloaded, name: file.name };
+}
+async function downloadCode(button, file, referer) {
+  if (zipBusy) { el('actionStatus').textContent = 'Tunggu ZIP selesai atau batalkan terlebih dahulu.'; return; }
+  const original = button.textContent; button.disabled = true; button.textContent = 'Mengunduh…';
+  activeDownloads++; updateZipButtons();
+  try {
+    const downloaded = await fetchCodeFile(file, referer);
+    saveBlob(downloaded.blob, downloaded.name);
+    el('actionStatus').textContent = 'Download ' + file.name + ' telah dikirim ke browser.';
+  } catch (error) {
+    el('actionStatus').textContent = 'Gagal download ' + file.name + ': ' + (['TimeoutError', 'AbortError'].includes(error.name) ? 'Waktu tunggu habis.' : error.message);
+  } finally { activeDownloads--; updateZipButtons(); button.disabled = false; button.textContent = original; }
+}
+function renderCodeFiles(files, referer, notice) {
+  el('codeCount').textContent = '(' + files.length + ')'; el('codeEmpty').hidden = files.length > 0;
+  el('codeNotice').textContent = notice || 'File publik yang dirujuk HTML awal, bukan source backend atau salinan offline lengkap. Aset eksternal diambil saat Download/ZIP.';
+  el('codeList').replaceChildren();
+  files.forEach((file, index) => {
+    const item = make('article', 'media-item'), body = make('div', 'media-body');
+    body.append(make('p', 'format-tag', file.type.toUpperCase()), make('h3', 'filename', file.name));
+    body.append(make('p', 'code-detail', file.inline ? 'Inline dalam HTML · diekstrak sebagai file terpisah' : file.local ? 'Snapshot HTML halaman saat scraping' : 'Aset eksternal · diambil saat download'));
+    const source = file.url || file.sourceUrl || referer;
+    if (source) body.append(make('p', 'code-source', source));
+    const actions = make('div', 'actions'), download = make('button', 'button primary', 'Download'); download.type = 'button';
+    download.setAttribute('aria-label', 'Download file kode ' + (index + 1) + ': ' + file.name);
+    download.addEventListener('click', () => downloadCode(download, file, referer)); actions.append(download);
+    if (source) {
+      const open = make('a', 'button', 'Buka sumber'); open.href = source; open.target = '_blank'; open.rel = 'noopener noreferrer';
+      open.setAttribute('aria-label', 'Buka sumber file kode ' + (index + 1) + ': ' + file.name); actions.append(open);
+    }
+    body.append(actions); item.append(body); el('codeList').append(item);
+  });
+}
+
 function renderResults(data) {
   currentText = typeof data.fullText === 'string' ? data.fullText : '';
   currentTitle = data.title || 'hasil-scraping';
@@ -179,14 +245,16 @@ function renderResults(data) {
   const images = rawImages.filter(source => !isVideoUrl(source));
   const audios = mediaUrls(Array.isArray(data.audios) ? data.audios : data.audio ? [data.audio] : []);
   const referer = safeUrl(data.sourceUrl) || safeUrl(el('urlInput').value);
-  currentData = { text: currentText, title: String(currentTitle), referer, image: images, video: videos, audio: audios };
+  const codeFiles = normalizeCodeFiles(data.codeFiles);
+  currentData = { text: currentText, title: String(currentTitle), referer, image: images, video: videos, audio: audios, code: codeFiles };
+  renderCodeFiles(codeFiles, referer, data.codeNotice);
   el('zipStatus').textContent = 'Pilih isi ZIP yang ingin di-download.'; el('zipReport').hidden = true; el('zipProgress').hidden = true;
   updateZipButtons();
   el('pageTitle').textContent = currentTitle;
   el('sourceLink').textContent = referer || ''; el('sourceLink').href = referer || '#'; el('sourceLink').hidden = !referer;
   el('fullText').textContent = currentText || 'Tidak ada teks yang ditemukan dalam HTML halaman ini.';
   el('copyText').disabled = el('downloadText').disabled = !currentText;
-  el('stats').replaceChildren(...[currentText.length.toLocaleString('id-ID') + ' karakter', images.length + ' gambar', videos.length + ' video/GIF', audios.length + ' audio'].map(text => make('span', 'badge', text)));
+  el('stats').replaceChildren(...[currentText.length.toLocaleString('id-ID') + ' karakter', images.length + ' gambar', videos.length + ' video/GIF', audios.length + ' audio', codeFiles.length + ' file kode'].map(text => make('span', 'badge', text)));
   el('audioCount').textContent = '(' + audios.length + ')'; el('imageCount').textContent = '(' + images.length + ')';
   el('audioEmpty').hidden = audios.length > 0; el('imageEmpty').hidden = images.length > 0;
   el('videoCount').textContent = '(' + videos.length + ')'; el('videoEmpty').hidden = videos.length > 0;
@@ -284,9 +352,9 @@ async function buildZip(entries, signal) {
 function updateZipButtons() {
   const available = currentData ? {
     text: Boolean(currentData.text), image: currentData.image.length > 0,
-    video: currentData.video.length > 0, audio: currentData.audio.length > 0
+    video: currentData.video.length > 0, audio: currentData.audio.length > 0, code: currentData.code.length > 0
   } : {};
-  available.all = available.text || available.image || available.video || available.audio;
+  available.all = available.text || available.image || available.video || available.audio || available.code;
   document.querySelectorAll('[data-zip]').forEach(button => { button.disabled = zipBusy || activeDownloads > 0 || !available[button.dataset.zip]; });
 }
 function safeFileName(name, fallback = 'file') {
@@ -294,13 +362,14 @@ function safeFileName(name, fallback = 'file') {
 }
 async function downloadZip(category) {
   if (!currentData || zipBusy || activeDownloads > 0) return;
-  const data = currentData, jobs = [], folders = { image: 'gambar', video: 'video-gif', audio: 'audio' };
-  const labels = { all: 'semua', image: 'gambar', video: 'video-gif', audio: 'audio', text: 'teks' };
+  const data = currentData, jobs = [], folders = { image: 'gambar', video: 'video-gif', audio: 'audio', code: 'kode' };
+  const labels = { all: 'semua', image: 'gambar', video: 'video-gif', audio: 'audio', text: 'teks', code: 'kode' };
   if (!Object.hasOwn(labels, category)) return;
   if ((category === 'all' || category === 'text') && data.text) jobs.push({ kind: 'text', text: data.text });
   for (const kind of ['image', 'video', 'audio']) {
     if (category === 'all' || category === kind) data[kind].forEach((source, index) => jobs.push({ kind, source, index }));
   }
+  if (category === 'all' || category === 'code') data.code.forEach((file, index) => jobs.push({ kind: 'code', file, source: file.url || file.sourceUrl, index }));
   if (!jobs.length) { el('zipStatus').textContent = 'Tidak ada file pada kategori ini.'; return; }
   if (jobs.length > MAX_ZIP_FILES) { el('zipStatus').textContent = 'Terlalu banyak file. Maksimum 500 file per ZIP; pilih satu kategori atau download file secara terpisah.'; return; }
   zipBusy = true; zipController = new AbortController();
@@ -317,15 +386,16 @@ async function downloadZip(category) {
       try {
         let file;
         if (job.kind === 'text') file = { blob: new Blob([job.text], { type: 'text/plain;charset=utf-8' }), name: 'hasil-scraping.txt' };
+        else if (job.kind === 'code') file = await fetchCodeFile(job.file, data.referer, { signal, maxBytes: Math.max(0, MAX_ZIP - totalSize) });
         else file = await fetchMedia(job.source, job.kind, data.referer, { signal, maxBytes: Math.max(0, MAX_ZIP - totalSize) });
         abortCheck(signal);
         if (totalSize + file.blob.size > MAX_ZIP) throw new Error('Batas total ZIP 150 MB terlampaui.');
-        const name = job.kind === 'text' ? 'teks/hasil-scraping.txt' : folders[job.kind] + '/' + String(job.index + 1).padStart(3, '0') + '-' + safeFileName(file.name);
+        const name = job.kind === 'text' ? 'teks/hasil-scraping.txt' : job.kind === 'code' ? 'kode/' + safeFileName(job.file.type, 'data') + '/' + String(job.index + 1).padStart(3, '0') + '-' + safeFileName(file.name) : folders[job.kind] + '/' + String(job.index + 1).padStart(3, '0') + '-' + safeFileName(file.name);
         entries.push({ name, blob: file.blob }); totalSize += file.blob.size;
-        saved.push({ category: job.kind, path: name, bytes: file.blob.size, source: job.source || data.referer });
+        saved.push({ category: job.kind, name: file.name, fileType: job.file?.type, inline: job.file?.inline, path: name, bytes: file.blob.size, source: job.source || data.referer });
       } catch (error) {
         if (signal.aborted) throw error;
-        failed.push({ category: job.kind, source: job.source || data.referer, reason: ['TimeoutError', 'AbortError'].includes(error.name) ? 'Waktu tunggu download habis.' : error.message });
+        failed.push({ category: job.kind, name: job.file?.name, source: job.source || data.referer, reason: ['TimeoutError', 'AbortError'].includes(error.name) ? 'Waktu tunggu download habis.' : error.message });
       }
       el('zipProgress').value = index + 1;
     }
@@ -333,7 +403,7 @@ async function downloadZip(category) {
     if (!entries.length) throw new Error('Tidak ada file yang berhasil diambil; ZIP tidak dibuat.');
     const manifest = { title: data.title, sourceUrl: data.referer, category, createdAt: new Date().toISOString(), requestedFiles: jobs.length, savedFiles: saved, failedFiles: failed, complete: failed.length === 0 };
     entries.push({ name: 'manifest.json', blob: new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' }) });
-    if (failed.length) entries.push({ name: 'file-gagal.txt', blob: new Blob([failed.map(item => item.category + '\n' + item.source + '\n' + item.reason).join('\n\n')], { type: 'text/plain;charset=utf-8' }) });
+    if (failed.length) entries.push({ name: 'file-gagal.txt', blob: new Blob([failed.map(item => item.category + (item.name ? ' · ' + item.name : '') + '\n' + item.source + '\n' + item.reason).join('\n\n')], { type: 'text/plain;charset=utf-8' }) });
     el('zipStatus').textContent = 'Menyusun ZIP (' + (totalSize / 1024 / 1024).toFixed(1) + ' MB)…';
     const zip = await buildZip(entries, signal);
     abortCheck(signal);
@@ -343,7 +413,7 @@ async function downloadZip(category) {
     el('zipStatus').textContent = signal.aborted ? 'Pembuatan ZIP dibatalkan. Tidak ada ZIP yang di-download.' : 'Gagal membuat ZIP: ' + error.message;
   } finally {
     if (failed.length && !signal.aborted) {
-      el('zipReport').textContent = failed.map(item => item.category + ': ' + item.source + '\n' + item.reason).join('\n\n'); el('zipReport').hidden = false;
+      el('zipReport').textContent = failed.map(item => item.category + (item.name ? ' · ' + item.name : '') + ': ' + item.source + '\n' + item.reason).join('\n\n'); el('zipReport').hidden = false;
     }
     zipBusy = false; zipController = null; el('cancelZip').hidden = true; el('scrapeBtn').disabled = false; updateZipButtons();
   }

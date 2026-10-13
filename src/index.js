@@ -6,6 +6,18 @@ const AUDIO_EXT = /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|aiff|aif)(?:$|[?#])/i;
 const VIDEO_EXT = /\.(mp4|webm|gif|mov|m4v|ogv)(?:$|[?#])/i;
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico|tiff?)(?:$|[?#])/i;
 
+const CODE_EXT = /\.(css|[cm]?js|json|map|xml|txt|webmanifest|wasm|woff2?|ttf|otf|eot)(?:$|[?#])/i;
+const CODE_TYPES = new Set(['html', 'css', 'js', 'json', 'xml', 'text', 'font', 'wasm', 'map', 'data']);
+function codeType(value, hint = 'data') {
+  const extension = value.match(CODE_EXT)?.[1].toLowerCase();
+  if (extension === 'css') return 'css';
+  if (['js', 'mjs', 'cjs'].includes(extension)) return 'js';
+  if (['json', 'webmanifest'].includes(extension)) return 'json';
+  if (['woff', 'woff2', 'ttf', 'otf', 'eot'].includes(extension)) return 'font';
+  if (extension === 'txt') return 'text';
+  return extension || hint;
+}
+
 class HttpError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
 }
@@ -131,6 +143,70 @@ export function extractPage(html, finalUrl) {
   });
   for (const match of normalizedHtml.matchAll(/(?:https?:\/\/|\/\/)[^\s"'<>\\]+\.(?:mp4|webm|gif|mov|m4v|ogv)(?:\?[^\s"'<>\\]*)?/gi)) add(videos, match[0]);
 
+  // File yang tersedia bagi browser saja: tidak mencoba mengambil source backend.
+  const codeFiles = [{
+    id: 'page-html', name: 'index.html', type: 'html', mime: 'text/html',
+    sourceUrl: finalUrl, content: html, inline: false,
+    description: 'Snapshot HTML awal halaman'
+  }];
+  const codeUrls = new Set();
+  function addCode(raw, hint = 'data') {
+    if (!raw || typeof raw !== 'string') return;
+    try {
+      const source = publicUrl(new URL(raw.trim().replace(/&amp;/g, '&').replace(/\\\//g, '/'), base).href).href;
+      if (codeUrls.has(source) || source === finalUrl) return;
+      const type = codeType(source, hint);
+      if (!CODE_TYPES.has(type)) return;
+      codeUrls.add(source);
+      const name = codeDownloadName(source, type, 'application/octet-stream');
+      codeFiles.push({ id: 'asset-' + codeFiles.length, name, type, url: source, sourceUrl: source, inline: false, description: 'Aset eksternal yang dirujuk halaman' });
+    } catch { /* abaikan URL nonpublik, data URI, dan blob */ }
+  }
+  function cssDependencies(text) {
+    for (const match of text.matchAll(/@import\s+(?:url\(\s*)?['"]([^'"]+)['"]/gi)) addCode(match[1], 'css');
+    for (const match of text.matchAll(/url\(\s*['"]?([^'"()]+?)['"]?\s*\)/gi)) if (CODE_EXT.test(match[1])) addCode(match[1]);
+  }
+  $('link[href]').each((_, el) => {
+    const rel = ($(el).attr('rel') || '').toLowerCase().split(/\s+/);
+    const as = ($(el).attr('as') || '').toLowerCase(), value = $(el).attr('href');
+    if (rel.includes('stylesheet')) addCode(value, 'css');
+    else if (rel.includes('modulepreload')) addCode(value, 'js');
+    else if (rel.includes('manifest')) addCode(value, 'json');
+    else if (rel.includes('preload') && ['script', 'style', 'font'].includes(as)) addCode(value, {script: 'js', style: 'css', font: 'font'}[as]);
+    else if (CODE_EXT.test(value || '')) addCode(value);
+  });
+  let inlineScript = 0, inlineStyle = 0;
+  $('script').each((_, el) => {
+    const node = $(el);
+    for (const attr of ['src', 'data-src']) addCode(node.attr(attr), 'js');
+    if (node.attr('src')) return;
+    const text = node.html() || '';
+    if (!text.trim()) return;
+    const declared = (node.attr('type') || '').trim().toLowerCase();
+    const type = declared.includes('json') || ['importmap', 'speculationrules'].includes(declared) ? 'json' : !declared || declared === 'module' || /javascript|ecmascript/.test(declared) ? 'js' : 'text';
+    const extension = { js: 'js', json: 'json', text: 'txt' }[type];
+    inlineScript++;
+    codeFiles.push({ id: 'inline-script-' + inlineScript, name: 'inline-script-' + String(inlineScript).padStart(3, '0') + '.' + extension, type, mime: type === 'json' ? 'application/json' : type === 'js' ? 'text/javascript' : 'text/plain', sourceUrl: finalUrl, content: text, inline: true, description: 'Diekstrak dari script inline dalam HTML' });
+    if (type === 'js') {
+      for (const match of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)['"]((?:\.{1,2}\/|\/|https?:\/\/)[^'"\s]+)['"]/g)) addCode(match[1], 'js');
+    }
+  });
+  $('style').each((_, el) => {
+    const text = $(el).html() || '';
+    if (!text.trim()) return;
+    inlineStyle++;
+    codeFiles.push({ id: 'inline-style-' + inlineStyle, name: 'inline-style-' + String(inlineStyle).padStart(3, '0') + '.css', type: 'css', mime: 'text/css', sourceUrl: finalUrl, content: text, inline: true, description: 'Diekstrak dari style inline dalam HTML' });
+    cssDependencies(text);
+  });
+  $('[style]').each((_, el) => cssDependencies($(el).attr('style') || ''));
+  // Aset pendukung eksplisit (JSON, map, font, WASM, dsb.), bukan crawler rekursif.
+  $('[src], [href], [data-src], [data-href]').each((_, el) => {
+    for (const attr of ['src', 'href', 'data-src', 'data-href']) {
+      const value = $(el).attr(attr);
+      if (CODE_EXT.test(value || '')) addCode(value);
+    }
+  });
+
   const textDoc = cheerio.load(html);
   textDoc('script, style, noscript, svg, iframe, template, head').remove();
   textDoc('br').replaceWith('\n');
@@ -149,29 +225,48 @@ export function extractPage(html, finalUrl) {
     audios: [...audios],
     images: [...images],
     videos: [...videos],
+    codeFiles,
+    codeNotice: 'HTML awal, CSS/JS inline, dan aset publik yang dirujuk HTML dikumpulkan. Aset eksternal diambil saat Download/ZIP. Ini bukan salinan offline lengkap dan tidak mencakup kode backend/private.',
     notice: 'Teks dan media diambil dari HTML awal. Konten yang hanya muncul setelah JavaScript dijalankan, login, atau dari CSS eksternal mungkin tidak terambil. Preview dan download bergantung pada izin server sumber. Batas download: 100 MB per file.'
   };
 }
 
 function downloadFilename(source, contentType, kind) {
-  const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg', 'image/avif': 'avif', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/aac': 'aac', 'audio/flac': 'flac', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/ogg': 'ogv', 'video/quicktime': 'mov' };
+  const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg', 'image/avif': 'avif', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/aac': 'aac', 'audio/flac': 'flac', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/ogg': 'ogv', 'video/quicktime': 'mov', 'text/html': 'html', 'application/xhtml+xml': 'html', 'text/css': 'css', 'application/javascript': 'js', 'text/javascript': 'js', 'application/json': 'json', 'application/manifest+json': 'webmanifest', 'text/xml': 'xml', 'application/xml': 'xml', 'text/plain': 'txt', 'application/wasm': 'wasm', 'font/woff': 'woff', 'font/woff2': 'woff2', 'font/ttf': 'ttf', 'font/otf': 'otf' };
   let name = new URL(source).pathname.split('/').pop() || kind;
   try { name = decodeURIComponent(name); } catch { /* pertahankan nama */ }
   name = name.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/^\.+/, '').slice(0, 160) || kind;
-  if (!/\.[a-z0-9]{2,5}$/i.test(name)) name += '.' + (extensions[contentType] || (kind === 'image' ? 'img' : kind === 'video' ? 'video' : 'audio'));
+  if (!/\.[a-z0-9]{2,12}$/i.test(name)) name += '.' + (extensions[contentType] || (kind === 'image' ? 'img' : kind === 'video' ? 'video' : kind === 'code' ? 'txt' : 'audio'));
   return name;
+}
+
+function codeDownloadName(source, expectedType, mime) {
+  const name = downloadFilename(source, mime, 'code');
+  const urlExtension = new URL(source).pathname.match(/\.([a-z0-9]{2,12})$/i);
+  if (urlExtension) return name;
+  const suffix = { html: 'html', css: 'css', js: 'js', json: 'json', xml: 'xml', text: 'txt', map: 'map', wasm: 'wasm', font: 'font', data: 'bin' }[expectedType];
+  return name.replace(/\.[a-z0-9]{2,12}$/i, '') + '.' + suffix;
 }
 
 async function download(url) {
   const target = publicUrl(url.searchParams.get('url')).href;
   const kind = url.searchParams.get('kind');
-  if (!['image', 'audio', 'video'].includes(kind)) throw new HttpError('Jenis download harus image, video, atau audio.');
+  if (!['image', 'audio', 'video', 'code'].includes(kind)) throw new HttpError('Jenis download harus image, video, audio, atau code.');
+  const expectedCodeType = url.searchParams.get('fileType') || codeType(target, /\.html?(?:$|[?#])/i.test(target) ? 'html' : 'data');
+  if (kind === 'code' && !CODE_TYPES.has(expectedCodeType)) throw new HttpError('Tipe file kode tidak didukung.');
   const { response, finalUrl } = await publicFetch(target, { referer: url.searchParams.get('referer') || undefined, timeout: 60000 });
-  if (!response.ok) { await response.body?.cancel(); throw new HttpError(`Sumber media menolak download (HTTP ${response.status}).`, 502); }
+  if (!response.ok) { await response.body?.cancel(); throw new HttpError(`Sumber file menolak download (HTTP ${response.status}).`, 502); }
   const type = (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
   const extension = kind === 'image' ? IMAGE_EXT : kind === 'video' ? VIDEO_EXT : AUDIO_EXT;
-  const matches = type.startsWith(kind + '/') || kind === 'video' && type === 'image/gif' || (!type || type === 'application/octet-stream') && extension.test(finalUrl);
-  if (!matches) { await response.body?.cancel(); throw new HttpError('Sumber tidak mengirim file gambar/video/audio yang sesuai.', 415); }
+  let matches = type.startsWith(kind + '/') || kind === 'video' && type === 'image/gif' || (!type || type === 'application/octet-stream') && extension.test(finalUrl);
+  if (kind === 'code') {
+    const codeMime = /^(?:text\/(?:css|javascript|ecmascript|plain|xml)|application\/(?:javascript|x-javascript|ecmascript|json|manifest\+json|ld\+json|xml|wasm|vnd\.ms-fontobject|font-woff|x-font-[a-z0-9-]+)|font\/[a-z0-9-]+)$/i;
+    const htmlMime = /^(?:text\/html|application\/xhtml\+xml)$/i;
+    // Jangan menyimpan halaman login/anti-bot HTML sebagai file .css atau .js.
+    matches = expectedCodeType === 'html' ? htmlMime.test(type) || type === 'text/plain' : codeMime.test(type);
+    if (!type || type === 'application/octet-stream') matches = CODE_EXT.test(finalUrl) || expectedCodeType !== 'data';
+  }
+  if (!matches) { await response.body?.cancel(); throw new HttpError('Sumber tidak mengirim jenis file yang sesuai (mungkin halaman login atau anti-bot).', 415); }
   if (Number(response.headers.get('Content-Length')) > MAX_DOWNLOAD_BYTES) { await response.body?.cancel(); throw new HttpError('File melebihi batas download 100 MB.', 413); }
   // Streaming: tidak menampung seluruh audio/gambar di memori Worker.
   let size = 0;
@@ -184,7 +279,7 @@ async function download(url) {
   }));
   const headers = new Headers({
     'Content-Type': type || 'application/octet-stream',
-    'Content-Disposition': `attachment; filename="${downloadFilename(finalUrl, type, kind)}"`,
+    'Content-Disposition': `attachment; filename="${kind === 'code' ? codeDownloadName(finalUrl, expectedCodeType, type) : downloadFilename(finalUrl, type, kind)}"`,
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
     'Content-Security-Policy': "default-src 'none'; sandbox"
