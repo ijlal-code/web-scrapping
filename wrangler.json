@@ -1,5 +1,6 @@
 {
   "name": "web-scrapping",
+  "main": "src/index.js",
   "compatibility_date": "2026-10-06",
   "compatibility_flags": [
     "nodejs_compat"

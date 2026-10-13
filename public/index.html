@@ -23,31 +23,43 @@
   </div>
 
   <script>
-    async function runScraper() {
-      const url = document.getElementById('urlInput').value.trim();
-      const resultBox = document.getElementById('result');
-      const loading = document.getElementById('loading');
+  async function runScraper() {
+  const url = document.getElementById('urlInput').value.trim();
+  const resultBox = document.getElementById('result');
+  const loading = document.getElementById('loading');
 
-      if (!url) return alert('Silakan masukkan link URL');
+  if (!url) return alert('Silakan masukkan link URL');
 
-      loading.classList.remove('hidden');
-      resultBox.classList.add('hidden');
+  loading.classList.remove('hidden');
+  resultBox.classList.add('hidden');
 
-      try {
-        const res = await fetch('/api/scrape', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url })
-        });
-        const data = await res.json();
-        resultBox.textContent = JSON.stringify(data, null, 2);
-        resultBox.classList.remove('hidden');
-      } catch (e) {
-        alert('Terjadi kesalahan: ' + e.message);
-      } finally {
-        loading.classList.add('hidden');
-      }
+  try {
+    const res = await fetch('/api/scrape', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+
+    const rawText = await res.text();
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      throw new Error(`Server error (${res.status}): ${rawText || 'Respons kosong'}`);
     }
+
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Gagal mengekstrak web');
+    }
+
+    resultBox.textContent = JSON.stringify(data, null, 2);
+    resultBox.classList.remove('hidden');
+  } catch (e) {
+    alert('Terjadi kesalahan: ' + e.message);
+  } finally {
+    loading.classList.add('hidden');
+  }
+}
   </script>
 </body>
 </html>
