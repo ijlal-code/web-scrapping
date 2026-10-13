@@ -2,10 +2,10 @@
   "name": "web-scrapping",
   "main": "src/index.js",
   "compatibility_date": "2026-10-06",
-  "compatibility_flags": [
-    "nodejs_compat"
-  ],
+  "compatibility_flags": ["nodejs_compat"],
   "assets": {
-    "directory": "./public"
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
   }
 }
