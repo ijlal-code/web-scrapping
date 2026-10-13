@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scraper Undangan</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-6 flex flex-col items-center">
+  <div class="max-w-xl w-full bg-slate-800 p-6 rounded-xl shadow-lg mt-8">
+    <h1 class="text-xl font-bold mb-4 text-center">Web Scraper Undangan</h1>
+    <div class="flex gap-2">
+      <input id="urlInput" type="url" placeholder="https://bertemumoment.com/preview/chinese-java" 
+             class="flex-1 px-4 py-2 rounded bg-slate-700 text-white border border-slate-600 focus:outline-none focus:border-blue-500">
+      <button id="scrapeBtn" onclick="runScraper()" 
+              class="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded font-medium transition">
+        Scrape
+      </button>
+    </div>
+    
+    <div id="loading" class="hidden mt-4 text-center text-slate-400">Sedang mengambil data...</div>
+    <pre id="result" class="mt-4 p-4 bg-slate-950 rounded text-xs text-green-400 overflow-x-auto max-h-96 hidden"></pre>
+  </div>
+
+  <script>
+    async function runScraper() {
+      const url = document.getElementById('urlInput').value.trim();
+      const resultBox = document.getElementById('result');
+      const loading = document.getElementById('loading');
+
+      if (!url) return alert('Silakan masukkan link URL');
+
+      loading.classList.remove('hidden');
+      resultBox.classList.add('hidden');
+
+      try {
+        const res = await fetch('/api/scrape', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        const data = await res.json();
+        resultBox.textContent = JSON.stringify(data, null, 2);
+        resultBox.classList.remove('hidden');
+      } catch (e) {
+        alert('Terjadi kesalahan: ' + e.message);
+      } finally {
+        loading.classList.add('hidden');
+      }
+    }
+  </script>
+</body>
+</html>
